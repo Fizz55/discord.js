@@ -49,7 +49,7 @@ exports.DefaultOptions = {
   restWsBridgeTimeout: 5000,
   restRequestTimeout: 15000,
   retryLimit: 1,
-  restTimeOffset: 500,
+  restTimeOffset: 0,
   restSweepInterval: 60,
   presence: {},
 
@@ -223,7 +223,8 @@ exports.VoiceOPCodes = {
 };
 
 exports.Events = {
-  RATE_LIMIT: 'rateLimit',
+  RATE_LIMIT_SOFT: 'rateLimit',
+  RATE_LIMIT_HARD: 'rateLimitHard',
   CLIENT_READY: 'ready',
   GUILD_CREATE: 'guildCreate',
   GUILD_DELETE: 'guildDelete',

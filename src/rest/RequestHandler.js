@@ -3,7 +3,7 @@
 const DiscordAPIError = require('./DiscordAPIError');
 const HTTPError = require('./HTTPError');
 const {
-  Events: { RATE_LIMIT },
+  Events: { RATE_LIMIT_SOFT, RATE_LIMIT_HARD },
   browser,
 } = require('../util/Constants');
 const Util = require('../util/Util');
@@ -12,14 +12,6 @@ function parseResponse(res) {
   if (res.headers.get('content-type').startsWith('application/json')) return res.json();
   if (browser) return res.blob();
   return res.buffer();
-}
-
-function getAPIOffset(serverDate) {
-  return new Date(serverDate).getTime() - Date.now();
-}
-
-function calculateReset(reset, serverDate) {
-  return new Date(Number(reset) * 1000).getTime() - getAPIOffset(serverDate);
 }
 
 class RequestHandler {
@@ -69,9 +61,10 @@ class RequestHandler {
     if (this.limited) {
       const timeout = this.reset + this.manager.client.options.restTimeOffset - Date.now();
 
-      if (this.manager.client.listenerCount(RATE_LIMIT)) {
+      if (this.manager.client.listenerCount(RATE_LIMIT_SOFT)) {
         /**
-         * Emitted when the client hits a rate limit while making a request
+         * Emitted when the client would hit a rate limit while making a request. 
+         * The request was postponed without an attempt.
          * @event Client#rateLimit
          * @param {Object} rateLimitInfo Object containing the rate limit info
          * @param {number} rateLimitInfo.timeout Timeout in ms
@@ -80,7 +73,7 @@ class RequestHandler {
          * @param {string} rateLimitInfo.path Path used for request that triggered this event
          * @param {string} rateLimitInfo.route Route used for request that triggered this event
          */
-        this.manager.client.emit(RATE_LIMIT, {
+        this.manager.client.emit(RATE_LIMIT_SOFT, {
           timeout,
           limit: this.limit,
           method: request.method,
@@ -108,20 +101,41 @@ class RequestHandler {
     }
 
     if (res && res.headers) {
-      const serverDate = res.headers.get('date');
+      // const serverDate = res.headers.get('date');
       const limit = res.headers.get('x-ratelimit-limit');
       const remaining = res.headers.get('x-ratelimit-remaining');
-      const reset = res.headers.get('x-ratelimit-reset');
+      // const reset = res.headers.get('x-ratelimit-reset');
+      const resetAfter = res.headers.get('X-RateLimit-Reset-After');
       const retryAfter = res.headers.get('retry-after');
-
+      
       this.limit = limit ? Number(limit) : Infinity;
       this.remaining = remaining ? Number(remaining) : 1;
-      this.reset = reset ? calculateReset(reset, serverDate) : Date.now();
+      this.reset = resetAfter ? Date.now() + resetAfter*1000 : Date.now();
       this.retryAfter = retryAfter ? Number(retryAfter) : -1;
 
-      // https://github.com/discordapp/discord-api-docs/issues/182
-      if (item.request.route.includes('reactions')) {
-        this.reset = new Date(serverDate).getTime() - getAPIOffset(serverDate) + 250;
+      if(this.retryAfter >= 0){
+        if (this.manager.client.listenerCount(RATE_LIMIT_HARD)) {
+          const timeout = this.reset + this.manager.client.options.restTimeOffset - Date.now();
+          /**
+           * Emitted when the client has hit a rate limit while making a request.
+           * The request was made and it failed because of the rate limit. 
+           * If this event occurs, it is usually because the restTimeOffset is set too low (<0)
+           * @event Client#rateLimit
+           * @param {Object} rateLimitInfo Object containing the rate limit info
+           * @param {number} rateLimitInfo.timeout Timeout in ms
+           * @param {number} rateLimitInfo.limit Number of requests that can be made to this endpoint
+           * @param {string} rateLimitInfo.method HTTP method used for request that triggered this event
+           * @param {string} rateLimitInfo.path Path used for request that triggered this event
+           * @param {string} rateLimitInfo.route Route used for request that triggered this event
+           */
+          this.manager.client.emit(RATE_LIMIT_HARD, {
+            timeout,
+            limit: this.limit,
+            method: request.method,
+            path: request.path,
+            route: request.route,
+          });
+        }
       }
 
       // Handle global ratelimit

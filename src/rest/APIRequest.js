@@ -39,6 +39,8 @@ class APIRequest {
     if (!browser) headers['User-Agent'] = UserAgent;
     if (this.options.headers) headers = Object.assign(headers, this.options.headers);
 
+    headers['X-RateLimit-Precision'] = "millisecond";
+
     let body;
     if (this.options.files && this.options.files.length) {
       body = new FormData();
